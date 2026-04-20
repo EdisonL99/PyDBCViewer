@@ -84,6 +84,6 @@ If you're already inside tmux, it splits your current pane. If not, it starts a 
 ## Requirements
 
 - Python 3.6+
-- macOS (or any Unix with curses support for the TUI)
+- Developed on macOS (or any Unix with curses support for the TUI)
 - tmux (optional, for `dbc_launch.sh`)
 - No pip packages needed
