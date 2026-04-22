@@ -308,7 +308,7 @@ class DBCTui:
 
         L.append(self._blank())
         L.append(("  \u2588\u2588\u2588  DBC DATABASE OVERVIEW", "title"))
-        L.append(("  \u2500" * 50, "dim"))
+        L.append(("  " + "\u2500" * 50, "dim"))
         L.append(self._blank())
 
         # Stats boxes
@@ -347,7 +347,7 @@ class DBCTui:
 
         L.append(self._blank())
         L.append((f"  \u2588\u2588\u2588  {msg['name']}", "title"))
-        L.append(("  \u2500" * 50, "dim"))
+        L.append(("  " + "\u2500" * 50, "dim"))
         L.append(self._blank())
 
         # Message info box
@@ -498,7 +498,7 @@ class DBCTui:
 
         L.append(self._blank())
         L.append((f"  \u2588\u2588\u2588  {node_name}", "title"))
-        L.append(("  \u2500" * 50, "dim"))
+        L.append(("  " + "\u2500" * 50, "dim"))
         L.append(self._blank())
 
         # Stats box
@@ -541,7 +541,7 @@ class DBCTui:
 
         L.append(self._blank())
         L.append((f"  \u2588\u2588\u2588  {vt_name}", "title"))
-        L.append(("  \u2500" * 50, "dim"))
+        L.append(("  " + "\u2500" * 50, "dim"))
         L.append(self._blank())
 
         L.append(self._box_top(bw, f"{len(pairs)} entries"))
@@ -688,23 +688,35 @@ class DBCTui:
                     pass
 
     def _draw_file_tabs(self, w):
-        x = 1
-        for i, fname in enumerate(self.file_names):
-            # Trim .dbc extension for cleaner tabs
-            display = fname.replace(".dbc", "")
-            label = f" {display} "
-            if len(label) + x > w - 1:
+        if not self.file_names:
+            return
+        labels = [f" {f.replace('.dbc', '')} " for f in self.file_names]
+
+        # Scroll the tab strip so the active tab is always visible.
+        start = 0
+        while start <= self.active_file_idx:
+            used = 1
+            last_fit = start - 1
+            for i in range(start, len(labels)):
+                end = used + len(labels[i])
+                if end > w - 1:
+                    break
+                last_fit = i
+                used = end + 1
+            if last_fit >= self.active_file_idx:
                 break
-            if i == self.active_file_idx:
-                try:
-                    self.stdscr.addstr(1, x, label, self.COL_FILETAB)
-                except curses.error:
-                    pass
-            else:
-                try:
-                    self.stdscr.addstr(1, x, label, self.COL_DIM)
-                except curses.error:
-                    pass
+            start += 1
+
+        x = 1
+        for i in range(start, len(labels)):
+            label = labels[i]
+            if x + len(label) > w - 1:
+                break
+            style = self.COL_FILETAB if i == self.active_file_idx else self.COL_DIM
+            try:
+                self.stdscr.addstr(1, x, label, style)
+            except curses.error:
+                pass
             x += len(label) + 1
 
     def _draw_sidebar_tabs(self, w):
