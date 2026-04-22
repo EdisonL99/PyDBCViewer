@@ -6,6 +6,7 @@ Replacement for CANdb++ with no external dependencies.
 Usage:
     python3 dbc_tui.py                         # Auto-loads all .dbc files in current dir
     python3 dbc_tui.py file1.dbc file2.dbc     # Load specific files
+    python3 dbc_tui.py path/to/folder          # Load all .dbc files under a folder (recursive)
 
 Controls:
     Tab / Shift+Tab    Switch between panels
@@ -1067,13 +1068,26 @@ class DBCTui:
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
+def _expand_dbc_paths(paths):
+    """Expand args into .dbc file paths. Directory args recurse for .dbc/.DBC files."""
+    result = []
+    for p in paths:
+        if os.path.isdir(p):
+            matched = glob.glob(os.path.join(p, "**", "*.dbc"), recursive=True)
+            matched += glob.glob(os.path.join(p, "**", "*.DBC"), recursive=True)
+            result.extend(sorted(set(matched)))
+        else:
+            result.append(p)
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description="DBC TUI Viewer - Terminal CAN database viewer")
-    parser.add_argument("files", nargs="*", help="DBC files to load (default: all .dbc in current dir)")
+    parser.add_argument("files", nargs="*", help="DBC files or folders to load (default: all .dbc in current dir)")
     args = parser.parse_args()
 
     if args.files:
-        dbc_files = args.files
+        dbc_files = _expand_dbc_paths(args.files)
     else:
         dbc_files = sorted(glob.glob("*.dbc")) + sorted(glob.glob("Archived/*.dbc"))
 

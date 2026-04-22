@@ -15,6 +15,7 @@ Interactive web-based DBC viewer that runs in your browser.
 ```bash
 python3 dbc_viewer.py                       # auto-loads all .dbc files in current dir
 python3 dbc_viewer.py file1.dbc file2.dbc   # load specific files
+python3 dbc_viewer.py path/to/folder        # load all .dbc files under a folder (recursive)
 python3 dbc_viewer.py --port 9000           # custom port (default: 8087)
 ```
 
@@ -35,6 +36,7 @@ Curses-based terminal viewer with the same functionality.
 ```bash
 python3 dbc_tui.py                       # auto-loads all .dbc files in current dir
 python3 dbc_tui.py file1.dbc file2.dbc   # load specific files
+python3 dbc_tui.py path/to/folder        # load all .dbc files under a folder (recursive)
 ```
 
 **Controls:**

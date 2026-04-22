@@ -4,9 +4,10 @@ DBC Viewer - A web-based CAN database file viewer for macOS.
 Replacement for CANdb++ with no external dependencies.
 
 Usage:
-    python3 dbc_viewer.py                    # Auto-loads all .dbc files in current dir
+    python3 dbc_viewer.py                      # Auto-loads all .dbc files in current dir
     python3 dbc_viewer.py file1.dbc file2.dbc  # Load specific files
-    python3 dbc_viewer.py --port 9000        # Custom port
+    python3 dbc_viewer.py path/to/folder       # Load all .dbc files under a folder (recursive)
+    python3 dbc_viewer.py --port 9000          # Custom port
 """
 
 import os
@@ -1419,16 +1420,29 @@ class DBCHandler(BaseHTTPRequestHandler):
         pass
 
 
+def _expand_dbc_paths(paths):
+    """Expand args into .dbc file paths. Directory args recurse for .dbc/.DBC files."""
+    result = []
+    for p in paths:
+        if os.path.isdir(p):
+            matched = glob.glob(os.path.join(p, "**", "*.dbc"), recursive=True)
+            matched += glob.glob(os.path.join(p, "**", "*.DBC"), recursive=True)
+            result.extend(sorted(set(matched)))
+        else:
+            result.append(p)
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description="DBC Viewer - Web-based CAN database viewer")
-    parser.add_argument("files", nargs="*", help="DBC files to load (default: all .dbc in current dir)")
+    parser.add_argument("files", nargs="*", help="DBC files or folders to load (default: all .dbc in current dir)")
     parser.add_argument("--port", type=int, default=8087, help="HTTP port (default: 8087)")
     parser.add_argument("--no-open", action="store_true", help="Don't auto-open browser")
     args = parser.parse_args()
 
     # Find DBC files
     if args.files:
-        dbc_files = args.files
+        dbc_files = _expand_dbc_paths(args.files)
     else:
         dbc_files = sorted(glob.glob("*.dbc")) + sorted(glob.glob("Archived/*.dbc"))
 
