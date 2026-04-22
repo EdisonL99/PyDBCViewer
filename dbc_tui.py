@@ -22,8 +22,14 @@ import re
 import sys
 import glob
 import curses
+import locale
 import argparse
 import textwrap
+
+# Required for curses to render multi-byte UTF-8 chars (box drawing, etc.)
+# with correct cell widths. Without this Python defaults to the C locale
+# and consecutive ─ characters all overwrite the same cell.
+locale.setlocale(locale.LC_ALL, "")
 
 # ─── DBC Parser (shared with dbc_viewer.py) ──────────────────────────────────
 
