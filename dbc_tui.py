@@ -389,7 +389,7 @@ class DBCTui:
             for b in range(7, -1, -1):
                 hdr += f"  {b}   "
             L.append((hdr, "dim"))
-            L.append(("          \u250c" + ("\u2500" * 5 + "\u252c") * 7 + "\u2500" * 5 + "\u2510", "dim"))
+            L.append(("           \u250c" + ("\u2500" * 5 + "\u252c") * 7 + "\u2500" * 5 + "\u2510", "dim"))
 
             for byte_n in range(msg["dlc"]):
                 row = f"  Byte {byte_n:2d}  \u2502"
@@ -403,9 +403,9 @@ class DBCTui:
                         row += "  \u00b7  \u2502"
                 L.append((row, 0))
                 if byte_n < msg["dlc"] - 1:
-                    L.append(("          \u251c" + ("\u2500" * 5 + "\u253c") * 7 + "\u2500" * 5 + "\u2524", "dim"))
+                    L.append(("           \u251c" + ("\u2500" * 5 + "\u253c") * 7 + "\u2500" * 5 + "\u2524", "dim"))
 
-            L.append(("          \u2514" + ("\u2500" * 5 + "\u2534") * 7 + "\u2500" * 5 + "\u2518", "dim"))
+            L.append(("           \u2514" + ("\u2500" * 5 + "\u2534") * 7 + "\u2500" * 5 + "\u2518", "dim"))
             L.append(self._blank())
 
         # Signals
