@@ -485,7 +485,7 @@ class DBCTui:
 
     def _exp_row(self, text, w):
         text = text[:w - 4]
-        return ("    \u2502 " + text + " " * max(0, w - 4 - len(text)) + "\u2502", "green")
+        return ("    \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502", "green")
 
     def _build_node_detail(self, node_name):
         db = self.db
