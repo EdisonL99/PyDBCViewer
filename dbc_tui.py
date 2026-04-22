@@ -284,11 +284,11 @@ class DBCTui:
 
     def _box_row(self, text, w):
         text = text[:w - 4]
-        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + "\u2502", 0)
+        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502", 0)
 
     def _box_row_styled(self, text, w, style):
         text = text[:w - 4]
-        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + "\u2502", style)
+        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502", style)
 
     def _section_header(self, title):
         bar = "\u2501" * 3
@@ -308,7 +308,7 @@ class DBCTui:
 
         L.append(self._blank())
         L.append(("  \u2588\u2588\u2588  DBC DATABASE OVERVIEW", "title"))
-        L.append(("  \u2500" * 50, "dim"))
+        L.append(("  " + "\u2500" * 50, "dim"))
         L.append(self._blank())
 
         # Stats boxes
@@ -347,7 +347,7 @@ class DBCTui:
 
         L.append(self._blank())
         L.append((f"  \u2588\u2588\u2588  {msg['name']}", "title"))
-        L.append(("  \u2500" * 50, "dim"))
+        L.append(("  " + "\u2500" * 50, "dim"))
         L.append(self._blank())
 
         # Message info box
@@ -389,10 +389,11 @@ class DBCTui:
             for b in range(7, -1, -1):
                 hdr += f"  {b}   "
             L.append((hdr, "dim"))
-            L.append(("          \u250c" + ("\u2500" * 5 + "\u252c") * 7 + "\u2500" * 5 + "\u2510", "dim"))
+            L.append(("           \u250c" + ("\u2500" * 5 + "\u252c") * 7 + "\u2500" * 5 + "\u2510", "dim"))
 
             for byte_n in range(msg["dlc"]):
                 row = f"  Byte {byte_n:2d}  \u2502"
+                bar_cols = [len(row) - 1]
                 for bit in range(7, -1, -1):
                     bidx = byte_n * 8 + bit
                     entry = bit_map[bidx]
@@ -401,11 +402,12 @@ class DBCTui:
                         row += f" {abbr:<4}\u2502"
                     else:
                         row += "  \u00b7  \u2502"
-                L.append((row, 0))
+                    bar_cols.append(len(row) - 1)
+                L.append((row, [(c, 1, "dim") for c in bar_cols]))
                 if byte_n < msg["dlc"] - 1:
-                    L.append(("          \u251c" + ("\u2500" * 5 + "\u253c") * 7 + "\u2500" * 5 + "\u2524", "dim"))
+                    L.append(("           \u251c" + ("\u2500" * 5 + "\u253c") * 7 + "\u2500" * 5 + "\u2524", "dim"))
 
-            L.append(("          \u2514" + ("\u2500" * 5 + "\u2534") * 7 + "\u2500" * 5 + "\u2518", "dim"))
+            L.append(("           \u2514" + ("\u2500" * 5 + "\u2534") * 7 + "\u2500" * 5 + "\u2518", "dim"))
             L.append(self._blank())
 
         # Signals
@@ -483,7 +485,7 @@ class DBCTui:
 
     def _exp_row(self, text, w):
         text = text[:w - 4]
-        return ("    \u2502 " + text + " " * max(0, w - 4 - len(text)) + "\u2502", "green")
+        return ("    \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502", "green")
 
     def _build_node_detail(self, node_name):
         db = self.db
@@ -496,7 +498,7 @@ class DBCTui:
 
         L.append(self._blank())
         L.append((f"  \u2588\u2588\u2588  {node_name}", "title"))
-        L.append(("  \u2500" * 50, "dim"))
+        L.append(("  " + "\u2500" * 50, "dim"))
         L.append(self._blank())
 
         # Stats box
@@ -539,7 +541,7 @@ class DBCTui:
 
         L.append(self._blank())
         L.append((f"  \u2588\u2588\u2588  {vt_name}", "title"))
-        L.append(("  \u2500" * 50, "dim"))
+        L.append(("  " + "\u2500" * 50, "dim"))
         L.append(self._blank())
 
         L.append(self._box_top(bw, f"{len(pairs)} entries"))
@@ -618,7 +620,8 @@ class DBCTui:
         return attr
 
     def draw(self):
-        self.stdscr.erase()
+        # clear() not erase(): erase() leaves ghost cells at panel boundaries when switching messages
+        self.stdscr.clear()
         h, w = self.stdscr.getmaxyx()
         if h < 10 or w < 40:
             self.stdscr.addstr(0, 0, "Terminal too small")
@@ -685,23 +688,35 @@ class DBCTui:
                     pass
 
     def _draw_file_tabs(self, w):
-        x = 1
-        for i, fname in enumerate(self.file_names):
-            # Trim .dbc extension for cleaner tabs
-            display = fname.replace(".dbc", "")
-            label = f" {display} "
-            if len(label) + x > w - 1:
+        if not self.file_names:
+            return
+        labels = [f" {f.replace('.dbc', '')} " for f in self.file_names]
+
+        # Scroll the tab strip so the active tab is always visible.
+        start = 0
+        while start <= self.active_file_idx:
+            used = 1
+            last_fit = start - 1
+            for i in range(start, len(labels)):
+                end = used + len(labels[i])
+                if end > w - 1:
+                    break
+                last_fit = i
+                used = end + 1
+            if last_fit >= self.active_file_idx:
                 break
-            if i == self.active_file_idx:
-                try:
-                    self.stdscr.addstr(1, x, label, self.COL_FILETAB)
-                except curses.error:
-                    pass
-            else:
-                try:
-                    self.stdscr.addstr(1, x, label, self.COL_DIM)
-                except curses.error:
-                    pass
+            start += 1
+
+        x = 1
+        for i in range(start, len(labels)):
+            label = labels[i]
+            if x + len(label) > w - 1:
+                break
+            style = self.COL_FILETAB if i == self.active_file_idx else self.COL_DIM
+            try:
+                self.stdscr.addstr(1, x, label, style)
+            except curses.error:
+                pass
             x += len(label) + 1
 
     def _draw_sidebar_tabs(self, w):
@@ -811,11 +826,25 @@ class DBCTui:
                 break
             text, attr = self.detail_lines[idx]
             display = text[:w]
-            resolved = self._resolve_style(attr)
-            try:
-                self.stdscr.addstr(y, x, display, resolved)
-            except curses.error:
-                pass
+            if isinstance(attr, list):
+                # List of (col_offset, length, style) overlays on a default-styled base
+                try:
+                    self.stdscr.addstr(y, x, display, 0)
+                except curses.error:
+                    pass
+                for col_off, seg_len, seg_style in attr:
+                    if col_off >= len(display):
+                        continue
+                    segment = display[col_off:col_off + seg_len]
+                    try:
+                        self.stdscr.addstr(y, x + col_off, segment, self._resolve_style(seg_style))
+                    except curses.error:
+                        pass
+            else:
+                try:
+                    self.stdscr.addstr(y, x, display, self._resolve_style(attr))
+                except curses.error:
+                    pass
 
         # Scroll indicator (right edge)
         if len(self.detail_lines) > visible and visible > 0:
