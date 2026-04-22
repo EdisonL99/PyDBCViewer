@@ -284,11 +284,11 @@ class DBCTui:
 
     def _box_row(self, text, w):
         text = text[:w - 4]
-        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + "\u2502", 0)
+        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502", 0)
 
     def _box_row_styled(self, text, w, style):
         text = text[:w - 4]
-        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + "\u2502", style)
+        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502", style)
 
     def _section_header(self, title):
         bar = "\u2501" * 3
@@ -618,7 +618,8 @@ class DBCTui:
         return attr
 
     def draw(self):
-        self.stdscr.erase()
+        # clear() not erase(): erase() leaves ghost cells at panel boundaries when switching messages
+        self.stdscr.clear()
         h, w = self.stdscr.getmaxyx()
         if h < 10 or w < 40:
             self.stdscr.addstr(0, 0, "Terminal too small")
