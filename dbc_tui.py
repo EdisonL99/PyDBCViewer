@@ -290,9 +290,11 @@ class DBCTui:
 
     def _box_top(self, w, title=""):
         if title:
-            title = f" {title} "
-            pad = w - 2 - len(title)
-            return ("  \u250c" + title + "\u2500" * max(0, pad) + "\u2510", "dim")
+            title_padded = f" {title} "
+            pad = w - 2 - len(title_padded)
+            line = "  \u250c" + title_padded + "\u2500" * max(0, pad) + "\u2510"
+            # dim outline, title segment highlighted
+            return (line, [(0, len(line), "dim"), (3, len(title_padded), "header")])
         return ("  \u250c" + "\u2500" * (w - 2) + "\u2510", "dim")
 
     def _box_mid(self, w):
