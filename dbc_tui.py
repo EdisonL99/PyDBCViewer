@@ -29,7 +29,20 @@ import textwrap
 # Required for curses to render multi-byte UTF-8 chars (box drawing, etc.)
 # with correct cell widths. Without this Python defaults to the C locale
 # and consecutive ─ characters all overwrite the same cell.
-locale.setlocale(locale.LC_ALL, "")
+try:
+    locale.setlocale(locale.LC_ALL, "")
+except locale.Error:
+    pass
+# Some terminals (e.g. Ghostty launched without LANG) leave the preferred
+# encoding as ASCII/ANSI even after the call above. Force UTF-8 so wide
+# addstr paths work.
+if locale.getpreferredencoding(False).upper().replace("-", "") != "UTF8":
+    for _loc in ("en_US.UTF-8", "en_US.UTF8", "C.UTF-8", "C.UTF8"):
+        try:
+            locale.setlocale(locale.LC_ALL, _loc)
+            break
+        except locale.Error:
+            continue
 
 # ─── DBC Parser (shared with dbc_viewer.py) ──────────────────────────────────
 
@@ -279,7 +292,7 @@ class DBCTui:
         if title:
             title = f" {title} "
             pad = w - 2 - len(title)
-            return ("  \u250c" + title + "\u2500" * max(0, pad) + "\u2510", "header")
+            return ("  \u250c" + title + "\u2500" * max(0, pad) + "\u2510", "dim")
         return ("  \u250c" + "\u2500" * (w - 2) + "\u2510", "dim")
 
     def _box_mid(self, w):
@@ -290,11 +303,14 @@ class DBCTui:
 
     def _box_row(self, text, w):
         text = text[:w - 4]
-        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502", 0)
+        line = "  \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502"
+        return (line, [(2, 1, "dim"), (len(line) - 1, 1, "dim")])
 
     def _box_row_styled(self, text, w, style):
         text = text[:w - 4]
-        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502", style)
+        line = "  \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502"
+        # base style applied to whole line, then │ walls overlaid in dim
+        return (line, [(0, len(line), style), (2, 1, "dim"), (len(line) - 1, 1, "dim")])
 
     def _section_header(self, title):
         bar = "\u2501" * 3
@@ -491,7 +507,8 @@ class DBCTui:
 
     def _exp_row(self, text, w):
         text = text[:w - 4]
-        return ("    \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502", "green")
+        line = "    \u2502 " + text + " " * max(0, w - 4 - len(text)) + " \u2502"
+        return (line, [(0, len(line), "green"), (4, 1, "dim"), (len(line) - 1, 1, "dim")])
 
     def _build_node_detail(self, node_name):
         db = self.db
