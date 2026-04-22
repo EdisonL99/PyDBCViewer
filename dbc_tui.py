@@ -393,6 +393,7 @@ class DBCTui:
 
             for byte_n in range(msg["dlc"]):
                 row = f"  Byte {byte_n:2d}  \u2502"
+                bar_cols = [len(row) - 1]
                 for bit in range(7, -1, -1):
                     bidx = byte_n * 8 + bit
                     entry = bit_map[bidx]
@@ -401,7 +402,8 @@ class DBCTui:
                         row += f" {abbr:<4}\u2502"
                     else:
                         row += "  \u00b7  \u2502"
-                L.append((row, 0))
+                    bar_cols.append(len(row) - 1)
+                L.append((row, [(c, 1, "dim") for c in bar_cols]))
                 if byte_n < msg["dlc"] - 1:
                     L.append(("           \u251c" + ("\u2500" * 5 + "\u253c") * 7 + "\u2500" * 5 + "\u2524", "dim"))
 
@@ -812,11 +814,25 @@ class DBCTui:
                 break
             text, attr = self.detail_lines[idx]
             display = text[:w]
-            resolved = self._resolve_style(attr)
-            try:
-                self.stdscr.addstr(y, x, display, resolved)
-            except curses.error:
-                pass
+            if isinstance(attr, list):
+                # List of (col_offset, length, style) overlays on a default-styled base
+                try:
+                    self.stdscr.addstr(y, x, display, 0)
+                except curses.error:
+                    pass
+                for col_off, seg_len, seg_style in attr:
+                    if col_off >= len(display):
+                        continue
+                    segment = display[col_off:col_off + seg_len]
+                    try:
+                        self.stdscr.addstr(y, x + col_off, segment, self._resolve_style(seg_style))
+                    except curses.error:
+                        pass
+            else:
+                try:
+                    self.stdscr.addstr(y, x, display, self._resolve_style(attr))
+                except curses.error:
+                    pass
 
         # Scroll indicator (right edge)
         if len(self.detail_lines) > visible and visible > 0:
