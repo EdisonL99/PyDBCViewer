@@ -325,6 +325,38 @@ body {
   border-color: var(--accent);
 }
 
+.folder-box {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+.folder-box input {
+  padding: 6px 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+  width: 260px;
+}
+.folder-box input:focus { border-color: var(--accent); }
+.folder-box input::placeholder { color: var(--text2); }
+.folder-box button {
+  padding: 6px 14px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.folder-box button:hover { background: var(--accent2); border-color: var(--accent); }
+
 /* Layout */
 .main {
   display: flex;
@@ -755,15 +787,20 @@ body {
 <div class="header">
   <h1>DBC Viewer <span>/ CAN Database</span></h1>
   <div class="file-tabs" id="fileTabs"></div>
+  <div class="folder-box">
+    <input type="text" id="folderInput" placeholder="Folder path to load .dbc files...">
+    <button id="folderLoad">Load</button>
+  </div>
 </div>
 
 <div class="main">
   <div class="sidebar">
     <div class="search-box">
-      <input type="text" id="searchInput" placeholder="Search messages, signals, nodes...">
+      <input type="text" id="searchInput" placeholder="Search messages, signals, nodes, value tables...">
     </div>
     <div class="sidebar-tabs">
       <div class="sidebar-tab active" data-tab="messages">Messages</div>
+      <div class="sidebar-tab" data-tab="signals">Signals</div>
       <div class="sidebar-tab" data-tab="nodes">Nodes</div>
       <div class="sidebar-tab" data-tab="vtables">Value Tables</div>
     </div>
@@ -904,6 +941,44 @@ function renderSidebar() {
       };
     });
 
+  } else if (activeTab === "signals") {
+    // Flatten all signals across messages
+    const rows = [];
+    Object.values(db.messages)
+      .filter(m => m.name !== "VECTOR__INDEPENDENT_SIG_MSG")
+      .forEach(m => {
+        m.signals.forEach(s => {
+          if (!query
+              || s.name.toLowerCase().includes(query)
+              || m.name.toLowerCase().includes(query)
+              || m.hex_id.toLowerCase().includes(query)) {
+            rows.push({ msg: m, sig: s });
+          }
+        });
+      });
+    rows.sort((a, b) => a.sig.name.localeCompare(b.sig.name));
+
+    container.innerHTML = rows.map(r => `
+      <div class="msg-item" data-msg="${r.msg.id}" data-sig="${esc(r.sig.name)}">
+        <div class="msg-name">
+          <span class="sig-name">${esc(r.sig.name)}</span>
+        </div>
+        <div class="msg-meta">
+          <span class="msg-id">${r.msg.hex_id}</span>
+          ${esc(r.msg.name)}
+          ${r.sig.unit ? `&middot; <span class="sig-unit">${esc(r.sig.unit)}</span>` : ""}
+          &middot; ${r.sig.bit_length} bits
+        </div>
+      </div>
+    `).join("") || '<div style="padding:16px;color:var(--text2);">No signals match</div>';
+
+    container.querySelectorAll(".msg-item").forEach(el => {
+      el.onclick = () => {
+        selectedMsg = parseInt(el.dataset.msg);
+        renderMessageDetail(selectedMsg, el.dataset.sig);
+      };
+    });
+
   } else if (activeTab === "vtables") {
     const vts = Object.entries(db.value_tables)
       .filter(([name]) => !query || name.toLowerCase().includes(query))
@@ -1015,7 +1090,7 @@ function renderOverview() {
 }
 
 // ─── Message Detail ─────────────────────────────────────────────────
-function renderMessageDetail(msgId) {
+function renderMessageDetail(msgId, focusSigName) {
   const db = databases[activeFile];
   const msg = db.messages[String(msgId)];
   if (!msg) return;
@@ -1181,6 +1256,20 @@ function renderMessageDetail(msgId) {
       }
     };
   });
+
+  // Auto-expand + scroll to a specific signal if requested
+  if (focusSigName) {
+    const idx = msg.signals.findIndex(s => s.name === focusSigName);
+    if (idx >= 0) {
+      const detail = document.getElementById("sigDetail" + idx);
+      const row = panel.querySelector(`.sig-row[data-idx="${idx}"]`);
+      if (detail) detail.classList.add("show");
+      if (row) {
+        row.classList.add("expanded");
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  }
 }
 
 // ─── Node Detail ────────────────────────────────────────────────────
@@ -1384,6 +1473,47 @@ document.addEventListener("mouseout", (e) => {
   }
 });
 
+// ─── Folder Loader ──────────────────────────────────────────────────
+async function loadFolder() {
+  const input = document.getElementById("folderInput");
+  const btn = document.getElementById("folderLoad");
+  const path = input.value.trim();
+  if (!path) return;
+  btn.disabled = true;
+  btn.textContent = "Loading...";
+  try {
+    const resp = await fetch("/api/load", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.error) {
+      alert("Error: " + (data.error || resp.statusText));
+      return;
+    }
+    databases = data.databases;
+    const files = Object.keys(databases);
+    if (files.length === 0) {
+      document.getElementById("detailPanel").innerHTML =
+        '<div class="detail-empty">No .dbc files found in that folder</div>';
+      return;
+    }
+    renderFileTabs(files);
+    selectFile(files[0]);
+  } catch (e) {
+    alert("Error: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Load";
+  }
+}
+
+document.getElementById("folderLoad").addEventListener("click", loadFolder);
+document.getElementById("folderInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") loadFolder();
+});
+
 init();
 </script>
 </body>
@@ -1414,6 +1544,54 @@ class DBCHandler(BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
+
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != "/api/load":
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(length) if length > 0 else b""
+        try:
+            req = json.loads(body.decode("utf-8") or "{}")
+        except ValueError:
+            self._json(400, {"error": "invalid JSON"})
+            return
+
+        folder = os.path.expanduser((req.get("path") or "").strip())
+        if not folder or not os.path.isdir(folder):
+            self._json(400, {"error": f"Not a folder: {folder}"})
+            return
+
+        files = sorted(set(
+            glob.glob(os.path.join(folder, "**", "*.dbc"), recursive=True)
+            + glob.glob(os.path.join(folder, "**", "*.DBC"), recursive=True)
+        ))
+        if not files:
+            self._json(400, {"error": f"No .dbc files in: {folder}"})
+            return
+
+        new_dbs = {}
+        for fp in files:
+            try:
+                db = parse_dbc(os.path.abspath(fp))
+                new_dbs[db["filename"]] = db_to_json(db)
+            except Exception as e:
+                print(f"  Skipping {fp}: {e}")
+        if not new_dbs:
+            self._json(500, {"error": "No files parsed successfully"})
+            return
+
+        DBCHandler.databases = new_dbs
+        self._json(200, {"databases": new_dbs})
+
+    def _json(self, status, obj):
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(obj).encode("utf-8"))
 
     def log_message(self, format, *args):
         # Quieter logging

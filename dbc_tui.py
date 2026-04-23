@@ -12,8 +12,9 @@ Controls:
     Tab / Shift+Tab    Switch between panels
     Up/Down / j/k      Navigate lists
     Enter              Select / expand
-    1-5                Switch sidebar tab (Messages/Nodes/ValTables/Search/Info)
+    1-6                Switch sidebar tab (Messages/Signals/Nodes/ValTables/Search/Info)
     /                  Search
+    o                  Open a folder (load all .dbc files recursively)
     f                  Switch DBC file
     q / Esc            Quit (or go back)
 """
@@ -145,11 +146,12 @@ def _parse_value_pairs(text):
 class DBCTui:
     # Sidebar tabs
     TAB_MESSAGES = 0
-    TAB_NODES = 1
-    TAB_VTABLES = 2
-    TAB_SEARCH = 3
-    TAB_INFO = 4
-    TAB_NAMES = ["Messages", "Nodes", "ValTables", "Search", "Info"]
+    TAB_SIGNALS = 1
+    TAB_NODES = 2
+    TAB_VTABLES = 3
+    TAB_SEARCH = 4
+    TAB_INFO = 5
+    TAB_NAMES = ["Messages", "Signals", "Nodes", "ValTables", "Search", "Info"]
 
     # Focus
     FOCUS_SIDEBAR = 0
@@ -223,6 +225,19 @@ class DBCTui:
                         continue
                     self.sidebar_items.append(("vt", name))
 
+        elif self.sidebar_tab == self.TAB_SIGNALS:
+            if self.db:
+                rows = []
+                for m in self._get_messages():
+                    for s in m["signals"]:
+                        if q and q not in s["name"].lower() and q not in m["name"].lower() \
+                                and q not in m["hex_id"].lower():
+                            continue
+                        rows.append((m, s))
+                rows.sort(key=lambda r: r[1]["name"].lower())
+                for m, s in rows:
+                    self.sidebar_items.append(("sig_ref", (m, s)))
+
         elif self.sidebar_tab == self.TAB_SEARCH:
             # Search results across all types
             if self.db and q:
@@ -266,7 +281,15 @@ class DBCTui:
         elif kind == "vt":
             self._build_vt_detail(data)
         elif kind == "sig_ref":
-            self._build_msg_detail(data[0])
+            msg_obj, sig_obj = data
+            try:
+                self.signal_cursor = next(
+                    i for i, s in enumerate(msg_obj["signals"]) if s["name"] == sig_obj["name"]
+                )
+                self.expanded_signal = self.signal_cursor
+            except StopIteration:
+                pass
+            self._build_msg_detail(msg_obj)
 
     # ─── Box Drawing Helpers ─────────────────────────────────────────
 
@@ -284,12 +307,12 @@ class DBCTui:
         return ("  \u2514" + "\u2500" * (w - 2) + "\u2518", "dim")
 
     def _box_row(self, text, w):
-        text = text[:w - 4]
-        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + "\u2502", 0)
+        text = text[:w - 3]
+        return ("  \u2502 " + text + " " * max(0, w - 3 - len(text)) + "\u2502", 0)
 
     def _box_row_styled(self, text, w, style):
-        text = text[:w - 4]
-        return ("  \u2502 " + text + " " * max(0, w - 4 - len(text)) + "\u2502", style)
+        text = text[:w - 3]
+        return ("  \u2502 " + text + " " * max(0, w - 3 - len(text)) + "\u2502", style)
 
     def _section_header(self, title):
         bar = "\u2501" * 3
@@ -374,40 +397,9 @@ class DBCTui:
             L.append(self._box_bot(bw))
         L.append(self._blank())
 
-        # Bit layout
+        # Bit layout (colored grid with legend)
         if msg["dlc"] > 0 and msg["signals"]:
-            L.append(self._section_header("BIT LAYOUT"))
-            L.append(self._blank())
-            bit_map = [None] * (msg["dlc"] * 8)
-            for idx, sig in enumerate(msg["signals"]):
-                bits = self._get_signal_bits(sig, msg["dlc"])
-                for b in bits:
-                    if 0 <= b < len(bit_map):
-                        bit_map[b] = (sig["name"], idx)
-
-            # Header with box chars
-            hdr = "           "
-            for b in range(7, -1, -1):
-                hdr += f"  {b}   "
-            L.append((hdr, "dim"))
-            L.append(("          \u250c" + ("\u2500" * 5 + "\u252c") * 7 + "\u2500" * 5 + "\u2510", "dim"))
-
-            for byte_n in range(msg["dlc"]):
-                row = f"  Byte {byte_n:2d}  \u2502"
-                for bit in range(7, -1, -1):
-                    bidx = byte_n * 8 + bit
-                    entry = bit_map[bidx]
-                    if entry:
-                        abbr = entry[0][:4]
-                        row += f" {abbr:<4}\u2502"
-                    else:
-                        row += "  \u00b7  \u2502"
-                L.append((row, 0))
-                if byte_n < msg["dlc"] - 1:
-                    L.append(("          \u251c" + ("\u2500" * 5 + "\u253c") * 7 + "\u2500" * 5 + "\u2524", "dim"))
-
-            L.append(("          \u2514" + ("\u2500" * 5 + "\u2534") * 7 + "\u2500" * 5 + "\u2518", "dim"))
-            L.append(self._blank())
+            self._build_bit_layout(msg)
 
         # Signals
         num_sigs = len(msg["signals"])
@@ -450,7 +442,7 @@ class DBCTui:
 
             if is_expanded:
                 ew = 46
-                L.append(("    \u250c" + "\u2500" * (ew - 2) + "\u2510", "green"))
+                L.append(("    \u250c" + "\u2500" * (ew - 2) + "\u2510", "expand"))
                 if long_name:
                     L.append(self._exp_row(f"Long Name:  {long_name}", ew))
                 L.append(self._exp_row(f"Byte Order: {'Little Endian (Intel)' if sig['byte_order'] == 'little_endian' else 'Big Endian (Motorola)'}", ew))
@@ -462,29 +454,89 @@ class DBCTui:
 
                 sig_comment = db["comments"]["signals"].get(sig_key, "")
                 if sig_comment:
-                    L.append(("    \u251c" + "\u2500" * (ew - 2) + "\u2524", "green"))
+                    L.append(("    \u251c" + "\u2500" * (ew - 2) + "\u2524", "expand"))
                     for wline in textwrap.wrap(sig_comment, ew - 4):
                         L.append(self._exp_row(wline, ew))
 
                 val_desc = db["value_descriptions"].get(sig_key, {})
                 if val_desc:
-                    L.append(("    \u251c" + "\u2500" * (ew - 2) + "\u2524", "green"))
+                    L.append(("    \u251c" + "\u2500" * (ew - 2) + "\u2524", "expand"))
                     L.append(self._exp_row("Value Descriptions:", ew))
                     for v, d in sorted(val_desc.items()):
                         L.append(self._exp_row(f"  {v:>4} \u2192 {d}", ew))
 
                 extra = {k: v for k, v in sig_attrs.items() if k != "SignalLongName"}
                 if extra:
-                    L.append(("    \u251c" + "\u2500" * (ew - 2) + "\u2524", "green"))
+                    L.append(("    \u251c" + "\u2500" * (ew - 2) + "\u2524", "expand"))
                     for k, v in extra.items():
                         L.append(self._exp_row(f"{k}: {v}", ew))
 
-                L.append(("    \u2514" + "\u2500" * (ew - 2) + "\u2518", "green"))
+                L.append(("    \u2514" + "\u2500" * (ew - 2) + "\u2518", "expand"))
                 L.append(self._blank())
 
     def _exp_row(self, text, w):
-        text = text[:w - 4]
-        return ("    \u2502 " + text + " " * max(0, w - 4 - len(text)) + "\u2502", "green")
+        text = text[:w - 3]
+        return ("    \u2502 " + text + " " * max(0, w - 3 - len(text)) + "\u2502", "expand")
+
+    def _build_bit_layout(self, msg):
+        """Render a bit grid with signal abbreviations in each cell, plus a legend."""
+        L = self.detail_lines
+
+        bit_map = [None] * (msg["dlc"] * 8)
+        for idx, sig in enumerate(msg["signals"]):
+            for b in self._get_signal_bits(sig, msg["dlc"]):
+                if 0 <= b < len(bit_map):
+                    bit_map[b] = sig["name"]
+
+        L.append(self._section_header("BIT LAYOUT"))
+        L.append(self._blank())
+
+        # Prefix is 10 chars wide; frame starts at column 10.
+        PREFIX = " " * 10
+
+        # Column header: bit numbers 7..0, each centered in a 5-wide cell
+        # separated by a space that aligns with the vertical dividers.
+        hdr = " " * 11  # skip past the \u250c column
+        cells = [f"  {b}  " for b in (7, 6, 5, 4, 3, 2, 1, 0)]
+        hdr += " ".join(cells)
+        L.append((hdr, "dim"))
+
+        top = PREFIX + "\u250c" + ("\u2500" * 5 + "\u252c") * 7 + "\u2500" * 5 + "\u2510"
+        mid = PREFIX + "\u251c" + ("\u2500" * 5 + "\u253c") * 7 + "\u2500" * 5 + "\u2524"
+        bot = PREFIX + "\u2514" + ("\u2500" * 5 + "\u2534") * 7 + "\u2500" * 5 + "\u2518"
+        L.append((top, "dim"))
+
+        for byte_n in range(msg["dlc"]):
+            # Row prefix is 11 chars wide: " Byte NN  ", then the \u2502 sits
+            # at column 10 to align with \u250c above it.
+            row = f" Byte {byte_n:2d}  \u2502"
+            for bit in range(7, -1, -1):
+                entry = bit_map[byte_n * 8 + bit]
+                if entry is not None:
+                    abbr = entry[:5]
+                    row += f"{abbr:^5}\u2502"
+                else:
+                    row += "  \u00b7  \u2502"
+            L.append((row, "white"))
+            if byte_n < msg["dlc"] - 1:
+                L.append((mid, "dim"))
+
+        L.append((bot, "dim"))
+        L.append(self._blank())
+
+        # Legend
+        L.append(("    Legend  (abbr \u2192 full name)", "dim"))
+        for sig in msg["signals"]:
+            order = "Intel" if sig["byte_order"] == "little_endian" else "Motorola"
+            sign = "S" if sig["is_signed"] else "U"
+            u = sig["unit"]
+            unit = f" [{u}]" if u else ""
+            sb = sig["start_bit"]
+            bl = sig["bit_length"]
+            name = sig["name"]
+            abbr = name[:5]
+            L.append((f"      {abbr:<5}  \u2192  {name}  (start={sb}, len={bl}, {order}/{sign}{unit})", 0))
+        L.append(self._blank())
 
     def _build_node_detail(self, node_name):
         db = self.db
@@ -604,6 +656,23 @@ class DBCTui:
             "dim": self.COL_DIM,
             "accent": self.COL_ACCENT | curses.A_BOLD,
             "green": self.COL_GREEN,
+            "expand": self.COL_MAGENTA | curses.A_BOLD,
+            "yellow": self.COL_YELLOW | curses.A_BOLD,
+            "magenta": self.COL_MAGENTA | curses.A_BOLD,
+            "red": self.COL_RED | curses.A_BOLD,
+            "white": self.COL_BRIGHT,
+            # Signal color cells (reverse-video blocks, cycling per signal)
+            "sig0": self.COL_YELLOW | curses.A_REVERSE | curses.A_BOLD,
+            "sig1": self.COL_GREEN | curses.A_REVERSE | curses.A_BOLD,
+            "sig2": self.COL_MAGENTA | curses.A_REVERSE | curses.A_BOLD,
+            "sig3": self.COL_RED | curses.A_REVERSE | curses.A_BOLD,
+            "sig4": self.COL_BRIGHT | curses.A_REVERSE,
+            # Matching foreground-only labels for legend
+            "sigfg0": self.COL_YELLOW | curses.A_BOLD,
+            "sigfg1": self.COL_GREEN | curses.A_BOLD,
+            "sigfg2": self.COL_MAGENTA | curses.A_BOLD,
+            "sigfg3": self.COL_RED | curses.A_BOLD,
+            "sigfg4": self.COL_BRIGHT,
         }
 
         while True:
@@ -634,11 +703,11 @@ class DBCTui:
 
         # Sidebar tabs (line 2)
         sidebar_w = min(40, w // 3)
-        self._draw_sidebar_tabs(sidebar_w)
+        self._draw_sidebar_tabs(w)
 
         # Divider under sidebar tabs
         try:
-            self.stdscr.addstr(3, 0, "\u2500" * sidebar_w, self.COL_DIM)
+            self.stdscr.addstr(3, 0, "\u2500" * (w - 1), self.COL_DIM)
         except curses.error:
             pass
 
@@ -650,12 +719,12 @@ class DBCTui:
         detail_w = w - detail_x - 1
         if detail_w > 10:
             # Vertical separator
-            for y in range(2, h - 1):
+            for y in range(4, h - 1):
                 try:
                     self.stdscr.addstr(y, sidebar_w + 1, "\u2502", self.COL_DIM)
                 except curses.error:
                     pass
-            self._draw_detail(detail_x, 2, detail_w, h - 3)
+            self._draw_detail(detail_x, 4, detail_w, h - 5)
 
         # Status bar (last line)
         self._draw_status(h, w)
@@ -707,7 +776,7 @@ class DBCTui:
 
     def _draw_sidebar_tabs(self, w):
         x = 0
-        icons = ["\u25a0", "\u25cf", "\u2261", "\u2315", "\u2139"]
+        icons = ["\u25a0", "\u223f", "\u25cf", "\u2261", "\u2315", "\u2139"]
         for i, name in enumerate(self.TAB_NAMES):
             icon = icons[i] if i < len(icons) else " "
             label = f" {icon} {name} "
@@ -810,13 +879,30 @@ class DBCTui:
             y = y_start + vi
             if idx >= len(self.detail_lines):
                 break
-            text, attr = self.detail_lines[idx]
-            display = text[:w]
-            resolved = self._resolve_style(attr)
-            try:
-                self.stdscr.addstr(y, x, display, resolved)
-            except curses.error:
-                pass
+            item = self.detail_lines[idx]
+            if isinstance(item, list):
+                # Multi-segment line: list of (text, attr) tuples
+                col = x
+                remaining = w
+                for seg_text, seg_attr in item:
+                    if remaining <= 0:
+                        break
+                    display = seg_text[:remaining]
+                    resolved = self._resolve_style(seg_attr)
+                    try:
+                        self.stdscr.addstr(y, col, display, resolved)
+                    except curses.error:
+                        pass
+                    col += len(display)
+                    remaining -= len(display)
+            else:
+                text, attr = item
+                display = text[:w]
+                resolved = self._resolve_style(attr)
+                try:
+                    self.stdscr.addstr(y, x, display, resolved)
+                except curses.error:
+                    pass
 
         # Scroll indicator (right edge)
         if len(self.detail_lines) > visible and visible > 0:
@@ -843,7 +929,7 @@ class DBCTui:
             left += f" [{self.sidebar_cursor + 1}/{items_count}]"
 
         # Right side help
-        right = " q:Quit  /:Search  f:File  Tab:Panel  Enter:Expand "
+        right = " q:Quit  /:Search  o:OpenFolder  1-6:Tab  f:File  Enter:Expand "
 
         padding = max(0, w - len(left) - len(right))
         full = (left + " " * padding + right)[:w - 1]
@@ -882,7 +968,7 @@ class DBCTui:
             return True
 
         # Number keys for sidebar tabs
-        for n in range(5):
+        for n in range(6):
             if key == ord(str(n + 1)):
                 self.sidebar_tab = n
                 self._rebuild_sidebar()
@@ -903,6 +989,11 @@ class DBCTui:
         # Search
         if key == ord('/'):
             self._do_search()
+            return True
+
+        # Open folder
+        if key == ord('o'):
+            self._do_open_folder()
             return True
 
         if self.focus == self.FOCUS_SIDEBAR:
@@ -1019,7 +1110,10 @@ class DBCTui:
         # Find the line index of the current signal cursor
         # We need to count through the detail lines to find which line has the cursor
         target_line = None
-        for i, (text, attr) in enumerate(self.detail_lines):
+        for i, item in enumerate(self.detail_lines):
+            if isinstance(item, list):
+                continue
+            _text, attr = item
             if attr == curses.A_REVERSE:  # Our cursor line
                 target_line = i
                 break
@@ -1064,6 +1158,78 @@ class DBCTui:
         if query:
             self.sidebar_tab = self.TAB_SEARCH
         self._rebuild_sidebar()
+
+    def _prompt_line(self, prompt, initial=""):
+        """Prompt for a single line of input at the bottom. Returns text or None on Esc."""
+        curses.curs_set(1)
+        h, w = self.stdscr.getmaxyx()
+        buf = initial
+        while True:
+            try:
+                self.stdscr.addstr(h - 1, 0, " " * (w - 1), curses.A_REVERSE)
+                self.stdscr.addstr(h - 1, 0, " " + prompt + " ", curses.A_REVERSE)
+                x_start = 2 + len(prompt)
+                display = buf[-max(0, w - x_start - 2):]
+                self.stdscr.addstr(h - 1, x_start, display, curses.A_REVERSE)
+                self.stdscr.move(h - 1, x_start + len(display))
+                self.stdscr.refresh()
+            except curses.error:
+                pass
+            ch = self.stdscr.getch()
+            if ch in (10, curses.KEY_ENTER):
+                curses.curs_set(0)
+                return buf
+            if ch == 27:
+                curses.curs_set(0)
+                return None
+            if ch in (curses.KEY_BACKSPACE, 127, 8):
+                buf = buf[:-1]
+            elif 32 <= ch < 127:
+                buf += chr(ch)
+
+    def _do_open_folder(self):
+        """Prompt for a folder path and reload databases from it."""
+        path = self._prompt_line("Open folder:", "")
+        if not path:
+            return
+        path = os.path.expanduser(path.strip())
+        if not os.path.isdir(path):
+            self._show_message(f"Not a folder: {path}")
+            return
+        files = sorted(set(
+            glob.glob(os.path.join(path, "**", "*.dbc"), recursive=True)
+            + glob.glob(os.path.join(path, "**", "*.DBC"), recursive=True)
+        ))
+        if not files:
+            self._show_message(f"No .dbc files in: {path}")
+            return
+        new_dbs = {}
+        for fp in files:
+            try:
+                db = parse_dbc(os.path.abspath(fp))
+                new_dbs[db["filename"]] = db
+            except Exception:
+                pass
+        if not new_dbs:
+            self._show_message("No files parsed successfully.")
+            return
+        self.databases = new_dbs
+        self.file_names = list(new_dbs.keys())
+        self.active_file_idx = 0
+        self.search_query = ""
+        self.sidebar_tab = self.TAB_MESSAGES
+        self._rebuild_sidebar()
+
+    def _show_message(self, msg):
+        """Flash a message in the status bar until any key is pressed."""
+        h, w = self.stdscr.getmaxyx()
+        try:
+            self.stdscr.addstr(h - 1, 0, " " * (w - 1), curses.A_REVERSE)
+            self.stdscr.addstr(h - 1, 0, " " + msg[:w - 4] + " (press any key) ", curses.A_REVERSE)
+            self.stdscr.refresh()
+        except curses.error:
+            pass
+        self.stdscr.getch()
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
