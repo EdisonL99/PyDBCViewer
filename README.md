@@ -94,3 +94,9 @@ If you're already inside tmux, it splits your current pane. If not, it starts a 
 - Developed on macOS (or any Unix with curses support for the TUI)
 - tmux (optional, for `dbc_launch.sh`)
 - No pip packages needed
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE). Copyright (c) 2026 EdisonL99.
